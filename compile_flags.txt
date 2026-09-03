@@ -1,0 +1,4 @@
+-Iinclude
+-std=gnu++20
+-Wall
+-Wextra

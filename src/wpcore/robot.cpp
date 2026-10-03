@@ -7,6 +7,11 @@
 
 namespace wpcore {
 
+// Inside this distance (inches) moveToPoint stops steering: the angle to the
+// target swings wildly that close, and flips 180 degrees on an overshoot.
+// Same value LemLib uses.
+constexpr double CLOSE_RANGE = 7.5;
+
 Robot::Robot(DriveConfig drive, PIDGains lateralGains, PIDGains angularGains, OdomConfig odomCfg)
     : drive(drive), lateralGains(lateralGains), angularGains(angularGains), odom(odomCfg),
       lateralPID(lateralGains.kP, lateralGains.kI, lateralGains.kD, lateralGains.windupRange),
@@ -52,6 +57,13 @@ void Robot::cancelCurrentMotion() {
 
 void Robot::moveToPoint(double x, double y, int timeout, MoveToPointParams params, bool async) {
     cancelCurrentMotion();
+    // Mark the motion as running *before* its task exists. Otherwise a
+    // waitUntilDone()/waitUntil() right after an async start can run before the
+    // task does, see motionRunning == false, and return immediately.
+    motionMutex.take();
+    motionRunning = true;
+    distanceTravelled = 0;
+    motionMutex.give();
     if (async) {
         motionTask = new pros::Task([this, x, y, timeout, params] { moveToPointTask(x, y, timeout, params); });
         return;
@@ -113,6 +125,7 @@ void Robot::moveToPointTask(double x, double y, int timeout, MoveToPointParams p
         double signedDistance = params.forwards ? distance : -distance;
         double lateralOut = lateralPID.update(signedDistance);
         double angularOut = angularPID.update(headingError);
+        if (distance < CLOSE_RANGE) angularOut = 0;
 
         lateralOut *= std::cos(degToRad(headingError));
 
@@ -161,6 +174,11 @@ void Robot::moveToPointTask(double x, double y, int timeout, MoveToPointParams p
 
 void Robot::turnToHeading(double theta, int timeout, TurnToHeadingParams params, bool async) {
     cancelCurrentMotion();
+    // Same as moveToPoint: mark the motion as running before its task exists.
+    motionMutex.take();
+    motionRunning = true;
+    distanceTravelled = 0;
+    motionMutex.give();
     if (async) {
         motionTask = new pros::Task([this, theta, timeout, params] { turnToHeadingTask(theta, timeout, params); });
         return;
@@ -198,7 +216,7 @@ void Robot::turnToHeadingTask(double theta, int timeout, TurnToHeadingParams par
         out = slewLimit(out, prevOut, angularGains.slew);
         prevOut = out;
 
-        if (params.minSpeed > 0 && std::fabs(out) < params.minSpeed) {
+        if (params.minSpeed > 0 && std::fabs(error) > angularGains.smallError && std::fabs(out) < params.minSpeed) {
             out = std::copysign(params.minSpeed, out);
         }
 

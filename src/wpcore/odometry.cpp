@@ -20,6 +20,10 @@ void Odometry::calibrate() {
 }
 
 void Odometry::update() {
+    // Hold the lock for the whole tick so a setPose() from another task can't
+    // land halfway through and then get overwritten with this tick's heading.
+    poseMutex.take();
+
     // --- 1. see what the sensors say ---
     double verticalRaw = sensors.vertical1 ? sensors.vertical1->getDistance() : 0;
     double horizontalRaw = sensors.horizontal1 ? sensors.horizontal1->getDistance() : 0;
@@ -27,13 +31,11 @@ void Odometry::update() {
     // get_rotation() instead of get_heading() because it's continuous -- it
     // can go past 360 or negative instead of wrapping, which matters a lot
     // for computing a clean deltaHeading right as we cross the 0/360 line.
-    // One quirk to know about: the V5 IMU reports clockwise spin as
-    // *negative* rotation, but Wipeout Core treats clockwise as positive (to
-    // match get_heading() and plain compass headings), so the sign gets
-    // flipped right here. This is the one line that convention lives in --
-    // if headings ever seem to run backwards on the real robot, this is the
-    // first place to look.
-    double imuRaw = sensors.imu ? -sensors.imu->get_rotation() : 0;
+    // It counts clockwise as positive, the same as get_heading() and the same
+    // convention Wipeout Core uses (see the get_rotation() docs in
+    // pros/imu.hpp), so it's used as-is. If headings ever seem to run
+    // backwards on the real robot, check that the IMU is mounted flat.
+    double imuRaw = sensors.imu ? sensors.imu->get_rotation() : 0;
     double reportedHeading = imuRaw + headingOffset;
 
     double verticalOffset = sensors.vertical1 ? sensors.vertical1->getOffset() : 0;
@@ -67,15 +69,14 @@ void Odometry::update() {
     double globalDY = localY * std::cos(avgHeadingRad) - localX * std::sin(avgHeadingRad);
 
     // --- 5. and that's the new pose ---
-    poseMutex.take();
     pose.x += globalDX;
     pose.y += globalDY;
     pose.theta = wrapDeg360(reportedHeading);
-    poseMutex.give();
 
     prevVertical = verticalRaw;
     prevHorizontal = horizontalRaw;
     prevHeading = reportedHeading;
+    poseMutex.give();
 }
 
 Pose Odometry::getPose() const {
@@ -90,11 +91,11 @@ void Odometry::setPose(const Pose& newPose) {
     // rotation currently sits, so the *next* update() call reports
     // newPose.theta plus at most one tick's worth of drift -- not whatever
     // the raw IMU total happens to say.
-    double imuRaw = sensors.imu ? -sensors.imu->get_rotation() : 0;
+    poseMutex.take();
+    double imuRaw = sensors.imu ? sensors.imu->get_rotation() : 0;
     headingOffset = newPose.theta - imuRaw;
     prevHeading = newPose.theta;
 
-    poseMutex.take();
     pose = newPose;
     pose.theta = wrapDeg360(newPose.theta);
     poseMutex.give();

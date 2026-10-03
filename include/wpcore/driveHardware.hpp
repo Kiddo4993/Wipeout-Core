@@ -14,6 +14,7 @@ namespace Omniwheel {
     constexpr double OLD_275 = 2.75;
     constexpr double OLD_325 = 3.25;
     constexpr double OLD_4 = 4.0;
+    constexpr double NEW_2 = 2.125; // the VEX 2" omni actually measures 2.125"
     constexpr double NEW_275 = 2.75;
     constexpr double NEW_325 = 3.25;
     constexpr double NEW_4 = 4.0;

@@ -11,7 +11,7 @@ double wrapDeg360(double deg) {
 
 double wrapDeg180(double deg) {
     // Shift by 180 first so the same "mod into [0, 360), then re-center"
-    // trick as wrapDeg360 lands us in (-180, 180] instead.
+    // trick as wrapDeg360 lands us in [-180, 180) instead.
     double wrapped = std::fmod(deg + 180.0, 360.0);
     if (wrapped < 0) wrapped += 360.0;
     return wrapped - 180.0;
